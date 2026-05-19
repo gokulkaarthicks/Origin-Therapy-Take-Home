@@ -18,11 +18,16 @@ Runtime LLM usage is allowed and recommended, but not required. Origin will prov
 
 ```bash
 npm install
-npm run triage   -- --input data/inbox.json --output output.json --trace .trace/tool-calls.jsonl
-npm run validate -- --input data/inbox.json --output output.json --trace .trace/tool-calls.jsonl
+export ANTHROPIC_API_KEY="your-key-here"   # do not commit; use Origin-provided key for synthetic data only
+npm run triage
+npm run validate
 ```
 
-The commands also work with no flags and default to the paths above. Reviewers may run the same commands against similar hidden synthetic input. Do not hardcode input, output, or trace paths.
+Optional flags (defaults shown): `--input data/inbox.json --output output.json --trace .trace/tool-calls.jsonl`.
+
+Typecheck: `npx tsc --noEmit` or `npm run typecheck`.
+
+Reviewers may run the same commands against similar hidden synthetic input. Do not hardcode input, output, or trace paths.
 
 ## Share And Submit
 
@@ -32,14 +37,71 @@ Commit your code, your updated `README.md`, and your final generated `output.jso
 
 We expect you to spend about 2 hours. If you stop before finishing, commit what you have and describe the cuts in your README.
 
-Update this README with these sections before submitting:
+## Stack and Runtime
 
-1. How to run
-2. Stack and runtime
-3. Architecture
-4. Failure modes and production eval
-5. What I chose not to build, and why
-6. What I would do with another 4 hours
+- **Language / runtime:** TypeScript on Node.js LTS (ES modules via `tsx`)
+- **LLM:** Anthropic `@anthropic-ai/sdk` (^0.39.0), model `claude-sonnet-4-20250514`
+- **Validation:** `ajv` against `schema/output.schema.json`
+- **Assumptions:** Synthetic inbox only; all items require human review (`requires_human_review: true`); agent never auto-sends messages or books appointments
+
+## Architecture
+
+Two-phase pipeline in [`src/agent.ts`](src/agent.ts):
+
+```mermaid
+flowchart LR
+  subgraph phase1 [Phase 1 - parallel]
+    I1[item_1] --> LLM1[LLM plan]
+    I2[item_2] --> LLM2[LLM plan]
+    I8[item_8] --> LLM8[LLM plan]
+  end
+  subgraph phase2 [Phase 2 - sequential per item]
+    Plan[TriagePlan] --> Tools[Deterministic tool executor]
+    Tools --> Out[ItemOutput + trace]
+  end
+  phase1 --> phase2
+```
+
+**Phase 1 — parallel LLM planning:** One `messages.create` call per inbox item (all items in parallel). The model returns a JSON `TriagePlan`: classification, urgency, extracted intake, rationale, and an `actions` object describing *which* tools to run—not raw tool results.
+
+**Phase 2 — sequential tool execution:** For each item, `withItemContext(item.id, …)` runs tools in a **fixed order** so downstream steps can depend on earlier results:
+
+1. `lookup_policy` — load practice rules (safeguarding, insurance, cancellation, etc.)
+2. `search_patient` — match existing chart before scheduling changes
+3. `verify_insurance` — billing status gates whether a slot hold is allowed
+4. `find_slots` — surface candidate times for staff review
+5. `hold_slot` — only if plan requests it, a slot exists, and insurance is not OON/expired/unknown
+6. `create_task` — assign work to intake, billing, front desk, or clinical lead
+7. `escalate` — P0/P1 safety or same-day ops
+8. `draft_message` — draft-only reply for human review
+
+The LLM is a **planner**, not an executor: it cannot bypass the stub tools or invent `call_id`s. `getToolCallsForItem()` supplies the audit trail the validator checks.
+
+## Failure Modes and Production Eval
+
+| Failure mode | Risk | Mitigation / metrics |
+|--------------|------|----------------------|
+| **Safeguarding false negative** | Harm disclosure missed → no P0 escalation | Keyword pre-pass + human QA on voicemail/fax; track `safeguarding_recall` on labeled set |
+| **LLM JSON parse / schema drift** | Run crashes or invalid output | `normalizePlan()` defaults; production: Zod validate + retry once; metric `plan_parse_success_rate` |
+| **Invalid `lookup_policy` topic** | Crash in stub (`snippets.length`) | Validate topic before call; metric `invalid_policy_topic_count` |
+| **Insurance state divergence** | Referral says in-network, verify says OON | Executor blocks `hold_slot` when status is OON/expired/unknown; metric `referral_vs_verify_mismatch_rate` |
+| **Over-escalation** | P0/P1 noise burns clinical lead | Default P2; track `urgency_distribution` and staff override rate |
+
+**Eval metrics I would track:** validation pass rate, per-classification precision/recall (vs. clinician labels), safeguarding recall, tool-call relevance (manual spot-check), time-to-triage p95, and human override rate on urgency and recommended actions.
+
+## What I Chose Not to Build, and Why
+
+- **Multi-turn agent loop** — Single-shot plan per item is enough for 8 synthetic items within ~2 hours; a ReAct loop adds latency and trace complexity without clear gain on this batch.
+- **Attachment parsing** — Referral PDFs are named in metadata only; no OCR/PDF pipeline in scope.
+- **Retry on LLM parse failure** — Would improve robustness but was cut for time; `normalizePlan()` handles partial JSON instead.
+- **Deterministic safeguarding pre-pass** — Relied on prompt + LLM judgment; a regex/keyword gate before the model would be my first production hardening step.
+
+## What I Would Do With Another 4 Hours
+
+1. **Zod validation** on `TriagePlan` after parse, with structured repair prompt on failure.
+2. **Safeguarding keyword pre-pass** (e.g. abuse, neglect, unsafe) to force P0 + `escalate` even if the LLM under-classifies.
+3. **Preference-based slot matching** — rank `find_slots` results by stated availability (after school, Spanish, mornings) instead of always holding the first slot.
+4. **Eval harness** — golden labels per inbox item, `npm run eval` reporting classification/urgency F1 and trace coverage.
 
 ## Your Task
 
