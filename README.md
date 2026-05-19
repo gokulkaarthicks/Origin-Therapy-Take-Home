@@ -18,7 +18,7 @@ Runtime LLM usage is allowed and recommended, but not required. Origin will prov
 
 ```bash
 npm install
-export ANTHROPIC_API_KEY="your-key-here"   # do not commit; use Origin-provided key for synthetic data only
+export ANTHROPIC_API_KEY="your-key-here"
 npm run triage
 npm run validate
 ```
