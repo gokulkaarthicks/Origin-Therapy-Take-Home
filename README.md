@@ -62,18 +62,18 @@ flowchart LR
   phase1 --> phase2
 ```
 
-**Phase 1 — parallel LLM planning:** One `messages.create` call per inbox item (all items in parallel). The model returns a JSON `TriagePlan`: classification, urgency, extracted intake, rationale, and an `actions` object describing *which* tools to run—not raw tool results.
+**Phase 1 - parallel LLM planning:** One `messages.create` call per inbox item (all items in parallel). The model returns a JSON `TriagePlan`: classification, urgency, extracted intake, rationale, and an `actions` object describing *which* tools to run-not raw tool results.
 
-**Phase 2 — sequential tool execution:** For each item, `withItemContext(item.id, …)` runs tools in a **fixed order** so downstream steps can depend on earlier results:
+**Phase 2 - sequential tool execution:** For each item, `withItemContext(item.id, …)` runs tools in a **fixed order** so downstream steps can depend on earlier results:
 
-1. `lookup_policy` — load practice rules (safeguarding, insurance, cancellation, etc.)
-2. `search_patient` — match existing chart before scheduling changes
-3. `verify_insurance` — billing status gates whether a slot hold is allowed
-4. `find_slots` — surface candidate times for staff review
-5. `hold_slot` — only if plan requests it, a slot exists, and insurance is not OON/expired/unknown
-6. `create_task` — assign work to intake, billing, front desk, or clinical lead
-7. `escalate` — P0/P1 safety or same-day ops
-8. `draft_message` — draft-only reply for human review
+1. `lookup_policy` - load practice rules (safeguarding, insurance, cancellation, etc.)
+2. `search_patient` - match existing chart before scheduling changes
+3. `verify_insurance` - billing status gates whether a slot hold is allowed
+4. `find_slots` - surface candidate times for staff review
+5. `hold_slot` - only if plan requests it, a slot exists, and insurance is not OON/expired/unknown
+6. `create_task` - assign work to intake, billing, front desk, or clinical lead
+7. `escalate` - P0/P1 safety or same-day ops
+8. `draft_message` - draft-only reply for human review
 
 The LLM is a **planner**, not an executor: it cannot bypass the stub tools or invent `call_id`s. `getToolCallsForItem()` supplies the audit trail the validator checks.
 
@@ -91,17 +91,17 @@ The LLM is a **planner**, not an executor: it cannot bypass the stub tools or in
 
 ## What I Chose Not to Build, and Why
 
-- **Multi-turn agent loop** — Single-shot plan per item is enough for 8 synthetic items within ~2 hours; a ReAct loop adds latency and trace complexity without clear gain on this batch.
-- **Attachment parsing** — Referral PDFs are named in metadata only; no OCR/PDF pipeline in scope.
-- **Retry on LLM parse failure** — Would improve robustness but was cut for time; `normalizePlan()` handles partial JSON instead.
-- **Deterministic safeguarding pre-pass** — Relied on prompt + LLM judgment; a regex/keyword gate before the model would be my first production hardening step.
+- **Multi-turn agent loop** - Single-shot plan per item is enough for 8 synthetic items within ~2 hours; a ReAct loop adds latency and trace complexity without clear gain on this batch.
+- **Attachment parsing** - Referral PDFs are named in metadata only; no OCR/PDF pipeline in scope.
+- **Retry on LLM parse failure** - Would improve robustness but was cut for time; `normalizePlan()` handles partial JSON instead.
+- **Deterministic safeguarding pre-pass** - Relied on prompt + LLM judgment; a regex/keyword gate before the model would be my first production hardening step.
 
 ## What I Would Do With Another 4 Hours
 
 1. **Zod validation** on `TriagePlan` after parse, with structured repair prompt on failure.
 2. **Safeguarding keyword pre-pass** (e.g. abuse, neglect, unsafe) to force P0 + `escalate` even if the LLM under-classifies.
-3. **Preference-based slot matching** — rank `find_slots` results by stated availability (after school, Spanish, mornings) instead of always holding the first slot.
-4. **Eval harness** — golden labels per inbox item, `npm run eval` reporting classification/urgency F1 and trace coverage.
+3. **Preference-based slot matching** - rank `find_slots` results by stated availability (after school, Spanish, mornings) instead of always holding the first slot.
+4. **Eval harness** - golden labels per inbox item, `npm run eval` reporting classification/urgency F1 and trace coverage.
 
 ## Your Task
 
@@ -109,7 +109,7 @@ Implement the agent in `src/agent.ts`. It should read the `InboxItem[]` it recei
 
 Available tools: `search_patient`, `verify_insurance`, `lookup_policy`, `find_slots`, `hold_slot`, `create_task`, `draft_message`, `escalate`.
 
-Use `schema/output.schema.json` as the source of truth for the output shape. `data/example_output.json` shows one non-trivial worked item. It is illustrative and is not expected to pass validation by itself. **Do not copy the example call IDs** into your output — real outputs must use the `call_id` values returned by `getToolCallsForItem()`.
+Use `schema/output.schema.json` as the source of truth for the output shape. `data/example_output.json` shows one non-trivial worked item. It is illustrative and is not expected to pass validation by itself. **Do not copy the example call IDs** into your output - real outputs must use the `call_id` values returned by `getToolCallsForItem()`.
 
 ## Time Box
 

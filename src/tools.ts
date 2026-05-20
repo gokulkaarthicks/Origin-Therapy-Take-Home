@@ -389,7 +389,7 @@ function shortId(): string {
   return ulid().toLowerCase();
 }
 
-// KEEP IN SYNC with data/policies.md — snippets are hardcoded for deterministic
+// KEEP IN SYNC with data/policies.md - snippets are hardcoded for deterministic
 // stub behavior. If you edit policies.md, mirror the change here.
 const policySnippets: Record<PolicyTopic, string[]> = {
   service_lines: [
